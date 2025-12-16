@@ -7,13 +7,16 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import schemacrawler.inclusionrule.RegularExpressionInclusionRule;
 import schemacrawler.schema.*;
-import schemacrawler. schemacrawler.*;
+import schemacrawler.schemacrawler.*;
 import schemacrawler.tools.utility.SchemaCrawlerUtility;
+import us.fatehi.utility.datasource.DatabaseConnectionSources;
+import us.fatehi.utility.datasource.UserCredentials;
+import us.fatehi.utility.datasource.DatabaseConnectionSource;
 
-import java.sql. Connection;
-import java.sql. DriverManager;
+import java.sql.Connection;
+import java.sql.DriverManager;
 import java.sql.SQLException;
-import java.time. Instant;
+import java.time.Instant;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -54,7 +57,7 @@ public class SchemaInspector {
                 .tableTypes("TABLE", "VIEW", "SYSTEM TABLE")
                 .toOptions();
 
-        LoadOptions loadOptions = LoadOptionsBuilder. builder()
+        LoadOptions loadOptions = LoadOptionsBuilder.builder()
                 .withSchemaInfoLevel(SchemaInfoLevelBuilder.maximum())
                 .toOptions();
 
@@ -72,15 +75,28 @@ public class SchemaInspector {
      * @return Complete schema snapshot
      */
     public SchemaSnapshot captureSnapshot(String jdbcUrl, String username, String password) {
-        LOG.info("📸 Capturing schema snapshot from:  {}", jdbcUrl);
+        LOG.info("📸 Capturing schema snapshot from: {}", jdbcUrl);
 
-        try (Connection connection = DriverManager. getConnection(jdbcUrl, username, password)) {
+        DatabaseConnectionSource dataSource = DatabaseConnectionSources.newDatabaseConnectionSource(jdbcUrl, new UserCredentials() {
+            @Override
+            public void clearPassword() {}
+            @Override
+            public String getPassword() { return password; }
+            @Override
+            public String getUser() { return username; }
+            @Override
+            public boolean hasPassword() { return password != null; }
+            @Override
+            public boolean hasUser() { return username != null; }
+        });
+
+        try (Connection connection = dataSource.get()) {
             // Get schema name
             String schemaName = dialect.getDefaultSchema(connection);
-            LOG.info("   Schema:  {}", schemaName);
+            LOG.info("   Schema: {}", schemaName);
 
             // 1. Use SchemaCrawler for tables, columns, indexes, constraints
-            Catalog catalog = SchemaCrawlerUtility.getCatalog(connection, createCrawlerOptions());
+            Catalog catalog = SchemaCrawlerUtility.getCatalog(dataSource, createCrawlerOptions());
 
             List<TableInfo> tables = extractTables(catalog);
             LOG.info("   ✓ Extracted {} tables", tables.size());
@@ -89,25 +105,25 @@ public class SchemaInspector {
             List<ViewInfo> views = dialect.extractViews(connection, schemaName);
             LOG.info("   ✓ Extracted {} views", views.size());
 
-            List<RoutineInfo> routines = dialect. extractRoutines(connection, schemaName);
+            List<RoutineInfo> routines = dialect.extractRoutines(connection, schemaName);
             LOG.info("   ✓ Extracted {} routines", routines.size());
 
-            List<TriggerInfo> triggers = dialect. extractTriggers(connection, schemaName);
+            List<TriggerInfo> triggers = dialect.extractTriggers(connection, schemaName);
             LOG.info("   ✓ Extracted {} triggers", triggers.size());
 
             List<SequenceInfo> sequences = dialect.extractSequences(connection, schemaName);
-            LOG.info("   ✓ Extracted {} sequences", sequences. size());
+            LOG.info("   ✓ Extracted {} sequences", sequences.size());
 
             // Build metadata
             Map<String, String> metadata = new HashMap<>();
             metadata.put("jdbcUrl", jdbcUrl);
             metadata.put("databaseProductName", connection.getMetaData().getDatabaseProductName());
-            metadata.put("databaseProductVersion", connection. getMetaData().getDatabaseProductVersion());
+            metadata.put("databaseProductVersion", connection.getMetaData().getDatabaseProductVersion());
             metadata.put("driverName", connection.getMetaData().getDriverName());
 
             return new SchemaSnapshot(
-                    catalog. getCrawlInfo().getDatabaseInfo().getProductName(),
-                    databaseType. getCode(),
+                    connection.getMetaData().getDatabaseProductName(),
+                    databaseType.getCode(),
                     schemaName,
                     Instant.now(),
                     tables,
@@ -143,7 +159,7 @@ public class SchemaInspector {
             String comment = table.getRemarks();
 
             tables.add(new TableInfo(
-                    table. getName(),
+                    table.getName(),
                     table.getSchema().getName(),
                     columns,
                     indexes,
@@ -171,7 +187,7 @@ public class SchemaInspector {
                     dataType != null ? dataType.getName() : "UNKNOWN",
                     column.getSize(),
                     column.getDecimalDigits(),
-                    column. isNullable(),
+                    column.isNullable(),
                     column.getDefaultValue(),
                     column.isPartOfPrimaryKey(),
                     column.isPartOfForeignKey(),
@@ -180,7 +196,7 @@ public class SchemaInspector {
             ));
         }
 
-        return columns. stream()
+        return columns.stream()
                 .sorted(Comparator.comparingInt(ColumnInfo::ordinalPosition))
                 .collect(Collectors.toList());
     }
@@ -191,12 +207,12 @@ public class SchemaInspector {
     private List<IndexInfo> extractIndexes(Table table) {
         List<IndexInfo> indexes = new ArrayList<>();
 
-        for (Index index : table. getIndexes()) {
+        for (Index index : table.getIndexes()) {
             List<String> columnNames = index.getColumns().stream()
                     .map(IndexColumn::getName)
                     .collect(Collectors.toList());
 
-            indexes. add(new IndexInfo(
+            indexes.add(new IndexInfo(
                     index.getName(),
                     table.getName(),
                     columnNames,
@@ -218,8 +234,8 @@ public class SchemaInspector {
         // Primary Key
         PrimaryKey pk = table.getPrimaryKey();
         if (pk != null) {
-            List<String> pkColumns = pk.getColumns().stream()
-                    .map(IndexColumn::getName)
+            List<String> pkColumns = pk.getConstrainedColumns().stream()
+                    .map(NamedObject::getName)
                     .collect(Collectors.toList());
 
             constraints.add(new ConstraintInfo(
@@ -237,7 +253,7 @@ public class SchemaInspector {
             List<String> refColumns = new ArrayList<>();
             String refTable = null;
 
-            for (ForeignKeyColumnReference ref : fk.getColumnReferences()) {
+            for (var ref : fk.getColumnReferences()) {
                 fkColumns.add(ref.getForeignKeyColumn().getName());
                 refColumns.add(ref.getPrimaryKeyColumn().getName());
                 if (refTable == null) {
@@ -248,7 +264,7 @@ public class SchemaInspector {
             constraints.add(new ConstraintInfo(
                     fk.getName(),
                     table.getName(),
-                    ConstraintInfo.ConstraintType. FOREIGN_KEY,
+                    ConstraintInfo.ConstraintType.FOREIGN_KEY,
                     fkColumns,
                     refTable,
                     refColumns,
@@ -260,7 +276,7 @@ public class SchemaInspector {
 
         // Unique constraints from indexes
         for (Index index : table.getIndexes()) {
-            if (index.isUnique() && ! isPrimaryKeyIndex(index, pk)) {
+            if (index.isUnique() && !isPrimaryKeyIndex(index, pk)) {
                 List<String> uniqueColumns = index.getColumns().stream()
                         .map(IndexColumn::getName)
                         .collect(Collectors.toList());
@@ -268,7 +284,7 @@ public class SchemaInspector {
                 constraints.add(new ConstraintInfo(
                         index.getName(),
                         table.getName(),
-                        ConstraintInfo. ConstraintType.UNIQUE,
+                        ConstraintInfo.ConstraintType.UNIQUE,
                         uniqueColumns,
                         null, null, null, null, null
                 ));
