@@ -1,0 +1,181 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.wso2.migration</groupId>
+    <artifactId>schema-compliance-checker</artifactId>
+    <version>1.0.0</version>
+    <packaging>jar</packaging>
+
+    <name>Schema Compliance Checker</name>
+    <description>
+        A zero-risk migration readiness tool that validates database schema integrity
+        by comparing user dumps against golden standard schemas in isolated Docker containers.
+    </description>
+
+    <properties>
+        <java.version>21</java.version>
+        <maven.compiler.source>${java.version}</maven.compiler.source>
+        <maven.compiler.target>${java.version}</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+
+        <testcontainers.version>1.19.7</testcontainers.version>
+        <schemacrawler.version>16.21.2</schemacrawler.version>
+        <javers.version>7.6.1</javers.version>
+        <jackson.version>2.17.0</jackson.version>
+        <slf4j.version>2.0.12</slf4j.version>
+        <logback.version>1.5.3</logback.version>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers</artifactId>
+            <version>${testcontainers.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>mysql</artifactId>
+            <version>${testcontainers.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>oracle-xe</artifactId>
+            <version>${testcontainers.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>mssqlserver</artifactId>
+            <version>${testcontainers.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>us.fatehi</groupId>
+            <artifactId>schemacrawler</artifactId>
+            <version>${schemacrawler.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>us.fatehi</groupId>
+            <artifactId>schemacrawler-mysql</artifactId>
+            <version>${schemacrawler.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>us.fatehi</groupId>
+            <artifactId>schemacrawler-oracle</artifactId>
+            <version>${schemacrawler.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>us.fatehi</groupId>
+            <artifactId>schemacrawler-sqlserver</artifactId>
+            <version>${schemacrawler.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.javers</groupId>
+            <artifactId>javers-core</artifactId>
+            <version>${javers.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>com.mysql</groupId>
+            <artifactId>mysql-connector-j</artifactId>
+            <version>8.3.0</version>
+        </dependency>
+        <dependency>
+            <groupId>com.oracle.database.jdbc</groupId>
+            <artifactId>ojdbc11</artifactId>
+            <version>23.3.0.23.09</version>
+        </dependency>
+        <dependency>
+            <groupId>com.microsoft.sqlserver</groupId>
+            <artifactId>mssql-jdbc</artifactId>
+            <version>12.6.1.jre11</version>
+        </dependency>
+
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <version>${jackson.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.datatype</groupId>
+            <artifactId>jackson-datatype-jsr310</artifactId>
+            <version>${jackson.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+            <version>${slf4j.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>ch.qos.logback</groupId>
+            <artifactId>logback-classic</artifactId>
+            <version>${logback.version}</version>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.12.1</version>
+                <configuration>
+                    <source>${java.version}</source>
+                    <target>${java.version}</target>
+                    <compilerArgs>
+                        <arg>--enable-preview</arg>
+                    </compilerArgs>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <version>3.3.0</version>
+                <configuration>
+                    <archive>
+                        <manifest>
+                            <mainClass>com.wso2.migration.checker.Main</mainClass>
+                            <addClasspath>true</addClasspath>
+                            <classpathPrefix>lib/</classpathPrefix>
+                        </manifest>
+                    </archive>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+                <version>3.5.2</version>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>shade</goal>
+                        </goals>
+                        <configuration>
+                            <transformers>
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                                    <mainClass>com.wso2.migration.checker.Main</mainClass>
+                                </transformer>
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
+                            </transformers>
+                            <filters>
+                                <filter>
+                                    <artifact>*:*</artifact>
+                                    <excludes>
+                                        <exclude>META-INF/*.SF</exclude>
+                                        <exclude>META-INF/*.DSA</exclude>
+                                        <exclude>META-INF/*.RSA</exclude>
+                                    </excludes>
+                                </filter>
+                            </filters>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>
